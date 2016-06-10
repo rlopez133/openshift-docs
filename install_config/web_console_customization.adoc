@@ -12,7 +12,7 @@ toc::[]
 
 == Overview
 Administrators can customize the
-xref:../architecture/infrastructure_components/web_console.adoc#[web console]
+link:../architecture/infrastructure_components/web_console.html[web console]
 using extensions, which let you run scripts and load custom stylesheets when the
 web console loads. You can change the look and feel of nearly any aspect of the
 user interface in this way.
