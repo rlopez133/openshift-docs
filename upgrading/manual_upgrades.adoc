@@ -2,8 +2,8 @@
 = Performing Manual In-place Cluster Upgrades
 {product-author}
 {product-version}
-:latest-tag: v3.9.40
-:latest-int-tag: v3.9.40
+:latest-tag: v3.7.61
+:latest-int-tag: v3.7.61
 :data-uri:
 :icons:
 :experimental:
@@ -14,12 +14,6 @@
 toc::[]
 
 == Overview
-
-[IMPORTANT]
-====
-As of {product-title} 3.9, manual upgrades are not supported. In a future
-release, this process will be removed.
-====
 
 As an alternative to performing an
 xref:../upgrading/automated_upgrades.adoc#install-config-upgrading-automated-upgrades[automated upgrade], you can manually upgrade your {product-title} cluster. To manually
@@ -41,6 +35,14 @@ upgrade.
 If you are using GlusterFS, see
 xref:../upgrading/automated_upgrades.adoc#special-considerations-for-glusterfs[Special
 Considerations When Using Containerized GlusterFS] before proceeding.
+
+The day before the upgrade, validate {product-title} storage migration to ensure
+potential issues are resolved prior to the outage window:
+
+----
+$ oc adm migrate storage --include=* --loglevel=2 --confirm
+----
+
 ====
 
 [[preparing-for-a-manual-upgrade]]
@@ -49,22 +51,24 @@ Considerations When Using Containerized GlusterFS] before proceeding.
 ifdef::openshift-enterprise[]
 [NOTE]
 ====
-Before upgrading your cluster to {product-title} 3.9, the cluster must be
+Before upgrading your cluster to {product-title} 3.7, the cluster must be
 already upgraded to the
-link:https://docs.openshift.com/container-platform/3.7/release_notes/ocp_3_7_release_notes.html#ocp-37-asynchronous-errata-updates[latest asynchronous release of version 3.7]. If your cluster is at a version earlier
-than 3.7, you must first upgrade incrementally (e.g., 3.5 to 3.6, then 3.6 to
-3.7).
+link:https://docs.openshift.com/container-platform/3.6/release_notes/ocp_3_6_release_notes.html#ocp-36-asynchronous-errata-updates[latest asynchronous release of version 3.6]. Cluster upgrades cannot span more than one
+minor version at a time, so if your cluster is at a version earlier than 3.6,
+you must first upgrade incrementally (e.g., 3.4 to 3.5, then 3.5 to 3.6).
 ====
 endif::[]
 
-To prepare for a manual upgrade, follow these steps:
+[NOTE]
+====
+Before attempting the upgrade, follow the steps in
+xref:manual-upgrades-verifying-the-upgrade[Verifying the Upgrade] to verify the
+cluster's health. This will confirm that nodes are in the *Ready* state, running
+the expected starting version, and will ensure that there are no diagnostic
+errors or warnings.
+====
 
-. Follow the steps in xref:manual-upgrades-verifying-the-upgrade[Verifying the
-Upgrade] to verify the cluster's health (if you are upgrading from 3.7 to 3.9,
-check the command outputs for the relevant 3.7 version instead of the stated
-3.9). This will confirm that nodes are in the *Ready* state, running the
-expected starting version, and will ensure that there are no diagnostic errors
-or warnings.
+To prepare for a manual upgrade, follow these steps:
 
 ifdef::openshift-enterprise[]
 
@@ -73,33 +77,23 @@ ifdef::openshift-enterprise[]
 ----
 # subscription-manager refresh
 ----
-endif::[]
 
-. If you are upgrading from {product-title} 3.7 to 3.9:
-
-ifdef::openshift-enterprise[]
-.. Manually disable the 3.7 repository and enable both the 3.8 and 3.9 repositories
-on each master and node host. You must also enable the
-*rhel-7-server-ansible-2.4-rpms* repository, which is a new requirement starting
-with {product-title} 3.9:
+. If you are upgrading from {product-title} 3.6 to 3.7, manually disable the 3.6
+channel and enable the 3.7 channel on each host:
 +
 ----
-# subscription-manager repos --disable="rhel-7-server-ose-3.7-rpms" \
-    --enable="rhel-7-server-ose-3.8-rpms" \
-    --enable="rhel-7-server-ose-3.9-rpms" \
+# subscription-manager repos --disable="rhel-7-server-ose-3.6-rpms" \
+    --enable="rhel-7-server-ose-3.7-rpms" \
     --enable="rhel-7-server-extras-rpms" \
-    --enable="rhel-7-server-ansible-2.4-rpms" \
     --enable="rhel-7-fast-datapath-rpms"
+----
++
+On RHEL 7 systems, also clear the *yum* cache:
++
+----
 # yum clean all
 ----
 endif::[]
-
-.. You must disable swap memory in your cluster before upgrading to {product-title}
-3.9, otherwise the upgrade will fail. Whether swap memory was enabled using
-`openshift_disable_swap=false` in your Ansible inventory file or enabled
-manually per host, see
-xref:../admin_guide/overcommit.adoc#disabling-swap-memory[Disabling Swap Memory]
-in the Cluster Administration guide to disable it on each host.
 
 . Install or update to the latest available version of the
 *atomic-openshift-utils* package on each RHEL 7 system, which provides files
@@ -130,6 +124,34 @@ each RHEL 7 system:
 # yum update kernel
 ----
 
+. There is a small set of configurations that are possible in authorization policy
+resources in  {product-title} 3.6 that are not supported by RBAC in
+{product-title} 3.7. Such configurations require manual migration based on your
+use case.
++
+If you are upgrading from {product-title} 3.6 to 3.7, to guarantee that all
+authorization policy objects are in sync with RBAC, run:
++
+----
+$ oc adm migrate authorization
+----
++
+This read-only command emulates the migration controller logic and reports if
+any resource is out of sync.
++
+[IMPORTANT]
+====
+During a rolling upgrade, avoid actions that require changes to {product-title}
+authorization policy resources such as the creation of new projects. If a
+project is created against a new master, the RBAC resources it creates will be
+deleted by the migration controller since they will be seen as out of sync from
+the authorization policy resources.
+
+If a project is created against an old master and the migration controller is no
+longer present due to a {product-title} 3.7 controller process being the leader,
+then its policy objects will not be synced and it will have no RBAC resources.
+====
+
 ////
 ((Step removed per QE feedback))
 . When installing or updating *atomic-openshift-utils*,
@@ -138,7 +160,7 @@ templates. To update these files:
 +
 ----
 # mkdir /usr/share/openshift/examples
-# cp -R /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/* /usr/share/openshift/examples/
+# cp -R /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/* /usr/share/openshift/examples/
 ----
 ////
 
@@ -199,7 +221,9 @@ ifdef::openshift-origin[]
 
 . If you are upgrading from OpenShift Origin 1.0 to 1.1:
 
-.. Create the following master proxy client certificates:
+.. Create the following master proxy client certificates
+on the first master listed in the Ansible host inventory file
+by default *_/etc/ansible/hosts_*:
 +
 ----
 # cd /etc/origin/master/
@@ -212,7 +236,7 @@ ifdef::openshift-origin[]
 +
 This creates files at  *_/etc/origin/master/master.proxy-client.{crt,key}_*.
 Then, add the master proxy client certificates to the
-*_/etc/origin/master/master-config.yaml_* file on each master:
+*_/etc/origin/master/master-config.yml_* file on each master:
 +
 ----
 kubernetesMasterConfig:
@@ -278,55 +302,6 @@ IMAGE_VERSION=<tag>
 +
 Replace `<tag>` with `{latest-tag}` for the latest version.
 
-. In previous versions of {product-title}, master hosts were marked unschedulable
-by default by the installer, meaning that no pods could be placed on the hosts.
-Starting with {product-title} 3.9, however, the web console is removed from the
-master services and deployed as a pod on the masters, requiring that masters be
-marked schedulable. This also requires adding labels to certain hosts, which
-assigns _node roles_ (either `master` or `compute`).
-ifdef::openshift-enterprise[]
-+
-[NOTE]
-====
-You can see the {product-title} 3.9 Release Notes for more information on how
-these notable technical changes relate in the context of supported automated
-upgrades:
-
-- xref:../release_notes/ocp_3_9_release_notes.adoc#ocp-39-schedulable-masters[Masters Marked as Schedulable Nodes by Default]
-- xref:../release_notes/ocp_3_9_release_notes.adoc#ocp-39-default-node-selector[Default Node Selector Set By Default and Automatic Node Labeling]
-====
-endif::[]
-+
-If you are upgrading from {product-title} 3.7 to 3.9:
-
-.. Add the following label to each master host:
-+
-----
-$ oc label node <hostname> node-role.kubernetes.io/master=true
-----
-+
-This assigns them the `master` node role.
-
-.. Add the following label to each non-master, non-infrastructure (e.g.,
-`region=infra` labeled) host:
-+
-----
-$ oc label node <hostname> node-role.kubernetes.io/compute=true
-----
-+
-This assigns them the `compute` node role.
-
-.. The default node selector must also now be set to ensure that only the web
-console pods will be scheduled to the masters. If you already have this set to a
-custom value via `projectConfig.defaultNodeSelector` in the
-*_/etc/origin/master/master-config.yaml_* file, you can skip this step. If you
-have not previously set it, set it to the following:
-+
-----
-projectConfig:
-  defaultNodeSelector: node-role.kubernetes.io/compute=true
-----
-
 . Restart the master service(s) on each master and review logs to ensure they
 restart successfully.
 +
@@ -348,17 +323,21 @@ configured as part of the OpenShift SDN, restart the *atomic-openshift-node* and
 # journalctl -r -u atomic-openshift-node
 ----
 
-. If you are upgrading from {product-title} 3.7 to 3.9, run the following for each
-master host to mark them schedulable:
-+
-----
-$ oc adm manage-node <hostname> --schedulable=true
-----
 endif::[]
-
 . If you are performing a cluster upgrade that requires updating Docker to version
-1.13, you must also perform the following steps if you are not already on Docker
-1.13:
+1.12, you must also perform the following steps if you are not already on Docker
+1.12:
++
+[IMPORTANT]
+====
+The node component on masters is set by default to unschedulable status during
+initial installation, so that pods are not deployed to them. However, it is
+possible to set them schedulable during the initial installation or manually
+thereafter. If any of your masters are also configured as a schedulable node,
+skip the following Docker upgrade steps for those masters and instead run all
+steps described in xref:upgrading-nodes[Upgrading Nodes] when you get to that
+section for those hosts as well.
+====
 
 .. Upgrade the *docker* package.
 
@@ -378,6 +357,11 @@ successfully:
 
 ... For RHEL Atomic Host 7 systems, upgrade to the latest Atomic tree if one is
 available:
++
+[NOTE]
+====
+If upgrading to RHEL Atomic Host 7.4.2, this upgrades Docker to version 1.12.
+====
 +
 ----
 # atomic host upgrade
@@ -578,8 +562,8 @@ logs to ensure they restart successfully:
 endif::[]
 
 . If you are performing a cluster upgrade that requires updating Docker to version
-1.13, you must also perform the following steps if you are not already on Docker
-1.13:
+1.12, you must also perform the following steps if you are not already on Docker
+1.12:
 
 .. Upgrade the *docker* package.
 
@@ -607,6 +591,11 @@ review the logs to ensure it restarts successfully:
 
 ... For RHEL Atomic Host 7 systems, upgrade to the latest Atomic tree if one is
 available:
++
+[NOTE]
+====
+If upgrading to RHEL Atomic Host 7.4.2, this upgrades Docker to version 1.12.
+====
 +
 ----
 # atomic host upgrade
@@ -647,10 +636,10 @@ verify that all nodes are showing as *Ready*:
 +
 ----
 # oc get nodes
-NAME                   STATUS    ROLES     AGE       VERSION
-master.example.com     Ready     master    7h        v1.9.1+a0ce1bc657
-node1.example.com      Ready     compute   7h        v1.9.1+a0ce1bc657
-node2.example.com      Ready     compute   7h        v1.9.1+a0ce1bc657
+NAME                        STATUS                     AGE
+master.example.com          Ready,SchedulingDisabled   165d
+node1.example.com           Ready                      165d
+node2.example.com           Ready                      165d
 ----
 
 [[upgrading-the-router]]
@@ -757,7 +746,7 @@ spec:
       containers:
       - env:
         ...
-        image: registry.access.redhat.com/openshift3/registry-console:v3.9
+        image: registry.access.redhat.com/openshift3/registry-console:v3.7
         imagePullPolicy: IfNotPresent
         ...
 ----
@@ -853,9 +842,9 @@ provides the example JSON files:
 ----
 endif::[]
 ifdef::openshift-enterprise[]
-By default, the
+By default, the xref:../install_config/install/quick_install.adoc#install-config-install-quick-install[quick] and
 xref:../install_config/install/advanced_install.adoc#install-config-install-advanced-install[advanced installation]
-method automatically creates default image streams, InstantApp templates, and
+methods automatically create default image streams, InstantApp templates, and
 database service templates in the *openshift* project, which is a default
 project to which all users have view access. These objects were created during
 installation from the JSON files located under the
@@ -881,14 +870,14 @@ Enterprise Linux 7 system where you can run the CLI as a user with
 To persist *_/usr/share/openshift/examples/_* on the first master:
 
 ----
-$ scp -R /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/* user@master1:/usr/share/openshift/examples/
+$ scp -R /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/* user@master1:/usr/share/openshift/examples/
 ----
 
 To persist *_/usr/share/openshift/examples/_* on all masters:
 
 ----
 $ mkdir /usr/share/openshift/examples
-$ scp -R /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/* user@masterx:/usr/share/openshift/examples
+$ scp -R /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/* user@masterx:/usr/share/openshift/examples
 ----
 
 The *openshift-ansible-roles* package provides the latest example JSON files.
@@ -898,11 +887,11 @@ endif::[]
 *openshift-ansible-roles*:
 +
 ----
-# rpm -ql openshift-ansible-roles | grep examples | grep v3.9
+# rpm -ql openshift-ansible-roles | grep examples | grep v3.7
 ----
 +
 In this example,
-*_/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/image-streams/image-streams-rhel7.json_*
+*_/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/image-streams/image-streams-rhel7.json_*
 is the latest file that you want in the latest *openshift-ansible-roles* package.
 +
 *_/usr/share/openshift/examples/image-streams/image-streams-rhel7.json_* is not
@@ -912,39 +901,39 @@ running `oc`, which can run anywhere that has access to the master.
 
 . Install *atomic-openshift-utils* and its dependencies to install the new content
 into
-*_/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/_*.:
+*_/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/_*.:
 +
 ----
-$ oc create -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/image-streams/image-streams-rhel7.json
-$ oc create -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/image-streams/dotnet_imagestreams.json
-$ oc replace -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/image-streams/image-streams-rhel7.json
-$ oc replace -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/image-streams/dotnet_imagestreams.json
+$ oc create -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/image-streams/image-streams-rhel7.json
+$ oc create -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/image-streams/dotnet_imagestreams.json
+$ oc replace -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/image-streams/image-streams-rhel7.json
+$ oc replace -n openshift -f  /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/image-streams/dotnet_imagestreams.json
 ----
 
 . Update the templates:
 +
 ----
-$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/
-$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/db-templates/
-$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/infrastructure-templates/
-$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/xpaas-templates/
-$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/xpaas-streams/
-$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/
-$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/db-templates/
-$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/infrastructure-templates/
-$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/xpaas-templates/
-$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/xpaas-streams/
+$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/
+$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/db-templates/
+$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/infrastructure-templates/
+$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/xpaas-templates/
+$ oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/xpaas-streams/
+$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/
+$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/db-templates/
+$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/infrastructure-templates/
+$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/xpaas-templates/
+$ oc replace -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/xpaas-streams/
 ----
 +
 Errors are generated for items that already exist. This is expected behavior:
 +
 ----
-# oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/
-Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/cakephp-mysql.json": templates "cakephp-mysql-example" already exists
-Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/cakephp.json": templates "cakephp-example" already exists
-Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/dancer-mysql.json": templates "dancer-mysql-example" already exists
-Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/dancer.json": templates "dancer-example" already exists
-Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.9/quickstart-templates/django-postgresql.json": templates "django-psql-example" already exists
+# oc create -n openshift -f /usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/
+Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/cakephp-mysql.json": templates "cakephp-mysql-example" already exists
+Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/cakephp.json": templates "cakephp-example" already exists
+Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/dancer-mysql.json": templates "dancer-mysql-example" already exists
+Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/dancer.json": templates "dancer-example" already exists
+Error from server: error when creating "/usr/share/ansible/openshift-ansible/roles/openshift_examples/files/examples/v3.7/quickstart-templates/django-postgresql.json": templates "django-psql-example" already exists
 ----
 
 Now, content can be updated. Without running the automated upgrade playbooks,
@@ -1061,7 +1050,9 @@ Node certificates will be regenerated on the master (or first master) and are
 then copied into place on node systems.
 ====
 
-. Create a temporary directory in which to perform the following steps:
+. Create a temporary directory in which to perform the following steps
+on the first master listed in the Ansible host inventory file
+by default *_/etc/ansible/hosts_*:
 +
 ----
 # mkdir /tmp/node_certificate_update
@@ -1192,7 +1183,9 @@ no further steps are required.
 ==== Generating a New Master Certificate
 
 If your current master certificate does not contain all names from the list
-above, then you must generate a new certificate for your master:
+above, then you generate a new certificate for your mater. Perform the
+following steps on the first master listed in the Ansible host inventory file
+by default *_/etc/ansible/hosts_*:
 
 . Back up the existing *_/etc/origin/master/master.server.crt_* and
 *_/etc/origin/master/master.server.key_* files for your master:
@@ -1249,41 +1242,6 @@ After the service restarts, the certificate update is complete.
 // end::30to31updatingcerts[]
 endif::[]
 
-[[manual-upgrading-web-console]]
-== Upgrading the Web Console
-
-[NOTE]
-====
-Manual upgrade steps for the web console are not available.
-====
-
-Starting with {product-title} 3.9, the web console is deployed as a separate
-component rather than as part of the master. The console will be installed by
-default as part of an automated upgrade unless you set the
-`openshift_web_console_install` variable to `false`.
-
-Alternatively, you can install the web console separately if needed, for
-example as part of a manual upgrade:
-
-. See the following section in the
-xref:../install_config/install/advanced_install.adoc#configuring-web-console-customization[Advanced Installation] topic and update your inventory file accordingly.
-
-. Run the following playbook:
-+
-----
-# ansible-playbook -i </path/to/inventory/file> \
-    /usr/share/ansible/openshift-ansible/playbooks/openshift-web-console/config.yml
-----
-
-[CAUTION]
-====
-The way the web console loads extensions has changed in {product-title} 3.9. If
-you are upgrading from an earlier version, you must host your extension scripts
-and stylesheets at a URL instead of on the master file system. See the
-xref:../install_config/web_console_customization.adoc#loading-custom-scripts-and-stylesheets[Loading Extension Scripts and Stylesheets]
-topic for details.
-====
-
 [[manual-upgrading-service-catalog]]
 == Upgrading the Service Catalog
 
@@ -1292,23 +1250,7 @@ topic for details.
 Manual upgrade steps for the service catalog and service brokers are not available.
 ====
 
-To upgrade the service catalog:
-
-. See the following three sections in the
-xref:../install_config/install/advanced_install.adoc#install-config-install-advanced-install[Advanced Installation] topic and update your inventory file accordingly:
-+
---
-- xref:../install_config/install/advanced_install.adoc#enabling-service-catalog[Configuring the Service Catalog]
-- xref:../install_config/install/advanced_install.adoc#configuring-openshift-ansible-broker[Configuring the OpenShift Ansible Broker]
-- xref:../install_config/install/advanced_install.adoc#configuring-template-service-broker[Configuring the Template Service Broker]
---
-
-. Run the following playbook:
-+
-----
-# ansible-playbook -i </path/to/inventory/file> \
-    /usr/share/ansible/openshift-ansible/playbooks/openshift-service-catalog/config.yml
-----
+include::upgrading/automated_upgrades.adoc[tag=automated-service-catalog-upgrade-steps]
 
 [[manual-upgrading-efk-logging-stack]]
 == Upgrading the EFK Logging Stack
@@ -1351,9 +1293,9 @@ Some {product-title} releases may have additional instructions specific to that
 release that must be performed to fully apply the updates across the cluster.
 ifdef::openshift-enterprise[]
 This section will be updated over time as new asynchronous updates are released
-for {product-title} 3.9.
+for {product-title} 3.7.
 
-See the xref:../release_notes/ocp_3_9_release_notes.adoc#release-notes-ocp-3-9-release-notes[{product-title} 3.9 Release Notes] to review the latest release notes.
+See the xref:../release_notes/ocp_3_7_release_notes.adoc#release-notes-ocp-3-7-release-notes[{product-title} 3.7 Release Notes] to review the latest release notes.
 
 ifdef::openshift-origin[]
 Read through the following sections carefully depending on your upgrade path, as
@@ -1597,10 +1539,10 @@ To verify the upgrade:
 +
 ----
 # oc get nodes
-NAME                   STATUS    ROLES     AGE       VERSION
-master.example.com     Ready     master    7h        v1.9.1+a0ce1bc657
-node1.example.com      Ready     compute   7h        v1.9.1+a0ce1bc657
-node2.example.com      Ready     compute   7h        v1.9.1+a0ce1bc657
+NAME                        STATUS                     AGE
+master.example.com          Ready,SchedulingDisabled   165d
+node1.example.com           Ready                      165d
+node2.example.com           Ready                      165d
 ----
 
 . Verify that you are running the expected versions of the *docker-registry*
@@ -1623,6 +1565,30 @@ ifdef::openshift-origin[]
     "image": "openshift/origin-haproxy-router:v1.0.6",
 endif::[]
 ----
+
+. If you upgraded from {product-title} 3.6 to 3.7, the following read-only script
+can be used to determine what namespaces lack RBAC role bindings:
++
+[source,bash]
+----
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+for namespace in $(oc get namespace -o name); do
+    ns=$(echo "${namespace}" | cut -d / -f 2)
+    rolebindings_count=$(oc get rolebinding.rbac -o name -n "${ns}" | wc -l)
+    if [[ "${rolebindings_count}" == "0" ]]; then
+        echo "Namespace ${ns} has no role bindings which may require further investigation"
+    else
+        echo "Namespace ${ns}: ok"
+    fi
+done
+----
++
+It is up to you to decide how to remediate these namespaces.
 
 ifdef::openshift-origin[]
 . If you upgraded from Origin 1.0 to Origin 1.1, verify in your old
