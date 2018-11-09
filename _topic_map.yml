@@ -63,6 +63,8 @@ Topics:
   File: using-node-tuning-operator
 - Name: Scaling the cluster monitoring Operator
   File: scaling-cluster-monitoring-operator
+- Name: Using CPU manager
+  File: using-cpu-manager
 ---
 Name: Operators
 Dir: operators
