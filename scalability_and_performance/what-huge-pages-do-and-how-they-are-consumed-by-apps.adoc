@@ -1,0 +1,22 @@
+// This assembly is included in the following assemblies:
+//
+// * n/a
+
+
+[id='what-huge-pages-do-and-how-they-are-consumed']
+= What huge pages do and how they are consumed by applications
+{product-author}
+{product-version}
+:data-uri:
+:icons:
+:experimental:
+:toc: macro
+:toc-title:
+:prewrap!:
+:context: huge-pages
+
+toc::[]
+
+include::modules/what-huge-pages-do.adoc[leveloffset=+1]
+
+include::modules/how-huge-pages-are-consumed-by-apps.adoc[leveloffset=+1]

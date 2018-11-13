@@ -63,6 +63,8 @@ Topics:
   File: using-node-tuning-operator
 - Name: Scaling the cluster monitoring Operator
   File: scaling-cluster-monitoring-operator
+- Name: What huge pages do and how they are consumed by apps
+  File: what-huge-pages-do-and-how-they-are-consumed-by-apps
 ---
 Name: Operators
 Dir: operators
