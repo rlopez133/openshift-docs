@@ -3,9 +3,12 @@
 // * scalability_and_performance/using-node-tuning-operator.adoc
 
 [id='about-node-tuning-operator-{context}']
-= About the node tuning operator
+= About the node tuning Operator
 
-The node tuning operator helps you manage node-level tuning by orchestrating the
+The node tuning Operator helps you manage node-level tuning by orchestrating the
 tuned daemon.
 
-Here are more details about why it is used...
+The majority of high-performance applications require some level of kernel
+tuning. The node tuning Operator provides a unified management interface to
+users of node-level sysctls and more flexibility to add custom tuning specified
+by user needs.
