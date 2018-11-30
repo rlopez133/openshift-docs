@@ -21,7 +21,6 @@ toc::[]
 Learn about the node tuning operator and how you can use it to manage node-level
 tuning by orchestrating the tuned daemon.  
 
-
 include::modules/node-tuning-operator.adoc[leveloffset=+1]
 
 include::modules/deploying-node-tuning-operator.adoc[leveloffset=+1]
